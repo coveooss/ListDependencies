@@ -1,0 +1,53 @@
+name: Create new release
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionNumber:
+        description: 'Version to create'     
+        required: true
+        default: '1.0.0'
+
+jobs:
+
+  build:
+
+    runs-on: windows-latest  
+
+    env:
+      Solution_Name: ListDependencies.sln
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Build and Publish
+      run: dotnet publish $env:Solution_Name /p:Configuration=Release --output published /p:Version=${{ github.event.inputs.versionNumber }}
+      
+    - name: Zip the tool
+      run: Compress-Archive -Path .\published\* -DestinationPath ListDependencies-${{ github.event.inputs.versionNumber }}.zip
+      
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset
+      id: upload-release-asset 
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./ListDependencies-${{ github.event.inputs.versionNumber }}.zip
+        asset_name: ListDependencies-${{ github.event.inputs.versionNumber }}.zip
+        asset_content_type: application/zip
+  
