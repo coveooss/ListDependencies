@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Coveo.Cdf.DllUtil;
 
 namespace ListDependencies
@@ -31,12 +32,23 @@ namespace ListDependencies
         static bool verbose = false;
         static bool internalOnly = false;
 
+        static HashSet<string> FoundInCurrentDir = new HashSet<string>();
+        static HashSet<string> FoundInWindowsDir = new HashSet<string>();
+        static HashSet<string> NotFound = new HashSet<string>();
+
+        // See https://docs.microsoft.com/en-us/windows/win32/apiindex/windows-apisets
+        // https://regex101.com/r/CKvCnx/2
+        static string ApiSetPattern = "(api-|ext-)[a-zA-Z0-9-]*(l[0-9]-[0-9]-[0-9])";
+        static Regex ApiSetRegex;
+
         static void Main(string[] args)
         {
             if (args == null || string.IsNullOrWhiteSpace(args[0])) {
                 Console.WriteLine(USAGE);
                 Environment.Exit(1);
             }
+
+            ApiSetRegex = new Regex(ApiSetPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
             FileInfo filename;
             if (File.Exists(args[0])) {
@@ -49,23 +61,28 @@ namespace ListDependencies
             verbose = args.Length > 1 && args[1] == "verbose";
             internalOnly = args.Length > 1 && args[1] == "internal";
 
-            var dict = new HashSet<string>();
-            var unable = new HashSet<string>();
-            AddDependencies(0, dict, unable, filename.Name);
+            AddDependencies(0, filename.Name);
 
             StringBuilder output = new StringBuilder();
 
             if (!internalOnly) {
-                output.AppendLine("\nNot in directory:");
-                foreach (var key in unable.OrderBy(x => x)) {
-                    output.AppendLine("  " + key);
-                }
-                output.AppendLine("\nDependencies:");
-                foreach (var key in dict.OrderBy(x => x)) {
+                output.AppendLine("\nDependencies in current directory:");
+                foreach (var key in FoundInCurrentDir.OrderBy(x => x)) {
                     output.AppendLine("  " + ResolveFileName(key));
                 }
-            } else {
-                foreach (var key in dict.OrderBy(x => x)) {
+                output.AppendLine("\nDependencies in Windows System32 directory:");
+                foreach (var key in FoundInWindowsDir.OrderBy(x => x))
+                {
+                    output.AppendLine("  " + ResolveFileName(key));
+                }
+                output.AppendLine("\nNot found:");
+                foreach (var key in NotFound.OrderBy(x => x))
+                {
+                    output.AppendLine("  " + key);
+                }
+            }
+            else {
+                foreach (var key in FoundInCurrentDir.OrderBy(x => x)) {
                     FileInfo dep = new FileInfo(ResolveFileName(key));
                     output.AppendLine(dep.FullName);
                 }
@@ -91,15 +108,21 @@ namespace ListDependencies
             return p_FileName;
         }
 
-        static void AddDependencies(int p_Level, HashSet<string> p_Dict, HashSet<string> p_Unable, string p_Filename)
+        static void AddDependencies(int p_Level, string p_Filename)
         {
-            if (p_Dict.Contains(p_Filename) || p_Unable.Contains(p_Filename)) {
+            if (FoundInCurrentDir.Contains(p_Filename)
+                || FoundInWindowsDir.Contains(p_Filename) 
+                || NotFound.Contains(p_Filename) 
+                || ApiSetRegex.IsMatch(p_Filename) ) {
                 return;
             }
-            if (verbose) {
+
+            if (verbose)
+            {
                 Console.WriteLine(new string(' ', p_Level * 2) + p_Filename);
             }
-            p_Dict.Add(p_Filename);
+
+            FoundInCurrentDir.Add(p_Filename);
             bool hasDllExt = p_Filename.EndsWith(DLL_EXT, StringComparison.InvariantCultureIgnoreCase) ||
                              p_Filename.EndsWith(PYD_EXT, StringComparison.InvariantCultureIgnoreCase) ||
                              p_Filename.EndsWith(EXE_EXT, StringComparison.InvariantCultureIgnoreCase);
@@ -107,17 +130,24 @@ namespace ListDependencies
                 using (var dllReader = new DllReader(hasDllExt ? p_Filename : p_Filename + DLL_EXT)) {
                     if (dllReader.IsPureClr) {
                         foreach (var ass in dllReader.AssemblyReferences) {
-                            AddDependencies(p_Level + 1, p_Dict, p_Unable, ass.Name);
+                            AddDependencies(p_Level + 1, ass.Name);
                         }
                     } else {
                         foreach (var dll in dllReader.DllDependencies) {
-                            AddDependencies(p_Level + 1, p_Dict, p_Unable, dll.Name);
+                            AddDependencies(p_Level + 1, dll.Name);
                         }
                     }
                 }
             } catch (Exception) {
-                p_Dict.Remove(p_Filename);
-                p_Unable.Add(p_Filename);
+                FoundInCurrentDir.Remove(p_Filename);
+                if(File.Exists( Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), p_Filename)))
+                {
+                    FoundInWindowsDir.Add(p_Filename);
+                }
+                else
+                {
+                    NotFound.Add(p_Filename);
+                }
             }
         }
 
