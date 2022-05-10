@@ -36,7 +36,7 @@ namespace ListDependencies
         static HashSet<string> FoundInWindowsDir = new HashSet<string>();
         static HashSet<string> NotFound = new HashSet<string>();
 
-        // 
+        // See https://docs.microsoft.com/en-us/windows/win32/apiindex/windows-apisets
         // https://regex101.com/r/CKvCnx/2
         static string ApiSetPattern = "(api-|ext-)[a-zA-Z0-9-]*(l[0-9]-[0-9]-[0-9])";
         static Regex ApiSetRegex;
@@ -110,11 +110,10 @@ namespace ListDependencies
 
         static void AddDependencies(int p_Level, string p_Filename)
         {
-            if (FoundInCurrentDir.Contains(p_Filename) || FoundInWindowsDir.Contains(p_Filename) || NotFound.Contains(p_Filename)) {
-                return;
-            }
-            if( ApiSetRegex.IsMatch(p_Filename))
-            {
+            if (FoundInCurrentDir.Contains(p_Filename)
+                || FoundInWindowsDir.Contains(p_Filename) 
+                || NotFound.Contains(p_Filename) 
+                || ApiSetRegex.IsMatch(p_Filename) ) {
                 return;
             }
 
